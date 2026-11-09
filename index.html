@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mein Rezeptbuch</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:Arial,sans-serif;background:#f5f7f2;color:#24372b;margin:0;padding:20px}
+main{max-width:650px;margin:auto}
+h1{text-align:center;color:#28664c}
+.card{background:white;padding:22px;border-radius:14px;margin-top:20px;box-shadow:0 2px 10px #0001}
+input{width:100%;padding:12px;margin:7px 0 12px;border:1px solid #ccc;border-radius:8px;font-size:16px}
+button{background:#28664c;color:white;border:0;border-radius:8px;padding:11px 16px;margin:5px 4px 5px 0;cursor:pointer}
+button:disabled{opacity:.5}
+.secondary{background:#68786d}
+.danger{background:#b13d3d}
+.hidden{display:none}
+.recipe{padding:14px 0;border-bottom:1px solid #ddd;cursor:pointer}
+.ingredient{display:flex;gap:7px;align-items:center}
+.ingredient .amount{width:35%}
+.ingredient .item{flex:1;min-width:0}
+.ingredient button{flex-shrink:0}
+#message{margin-top:15px;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<main>
+<h1>📖 Mein Rezeptbuch</h1>
+
+<section id="login" class="card">
+<h2>Anmelden</h2>
+<form id="loginForm">
+<input id="email" type="email" placeholder="E-Mail-Adresse" autocomplete="username" required>
+<input id="password" type="password" placeholder="Passwort" autocomplete="current-password" required>
+<button type="submit">Anmelden</button>
+</form>
+</section>
+
+<section id="app" class="hidden">
+<button id="logout" class="secondary">Abmelden</button>
+
+<div id="listPanel" class="card">
+<h2>Meine Rezepte</h2>
+<input id="search" placeholder="Rezept suchen ...">
+<div id="recipeList"></div>
+<button id="newRecipe">+ Neues Rezept</button>
+</div>
+
+<div id="detailPanel" class="card hidden">
+<h2 id="detailTitle"></h2>
+<ul id="detailIngredients"></ul>
+<button id="editRecipe">Bearbeiten</button>
+<button id="deleteRecipe" class="danger">Löschen</button>
+<button id="backDetail" class="secondary">Zurück</button>
+</div>
+
+<div id="editorPanel" class="card hidden">
+<h2 id="editorTitle">Neues Rezept</h2>
+<form id="recipeForm">
+<input id="recipeName" placeholder="Rezeptname" maxlength="160" required>
+<h3>Zutaten mit Mengen</h3>
+<div id="ingredientRows"></div>
+<button id="addIngredient" type="button" class="secondary">+ Zutat hinzufügen</button>
+<p>
+<button type="submit">Rezept speichern</button>
+<button id="cancelEdit" type="button" class="secondary">Abbrechen</button>
+</p>
+</form>
+</div>
+</section>
+<p id="message" role="status"></p>
+</main>
+
+<script type="module">
+import {createClient} from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+// HIER SPÄTER DEINE SUPABASE-DATEN EINTRAGEN
+const SUPABASE_URL = 'DEINE_SUPABASE_URL';
+const SUPABASE_KEY = 'DEIN_PUBLISHABLE_KEY';
+
+const $ = id => document.getElementById(id);
+const db = createClient(SUPABASE_URL, SUPABASE_KEY);
+let recipes = [], selected = null, editing = null, user = null;
+
+function message(text){$('message').textContent=text}
+function panel(id){
+ for(const name of ['listPanel','detailPanel','editorPanel'])
+  $(name).classList.toggle('hidden',name!==id);
+}
+function addRow(menge='',zutat=''){
+ const row=document.createElement('div');
+ row.className='ingredient';
+ const amount=document.createElement('input');
+ amount.className='amount';amount.placeholder='200 g';amount.value=menge;
+ const item=document.createElement('input');
+ item.className='item';item.placeholder='Zutat';item.value=zutat;
+ const remove=document.createElement('button');
+ remove.type='button';remove.textContent='×';remove.className='secondary';
+ remove.onclick=()=>row.remove();
+ row.append(amount,item,remove);
+ $('ingredientRows').append(row);
+}
+function ingredients(){
+ return [...$('ingredientRows').children].map(row=>({
+  menge:row.querySelector('.amount').value.trim(),
+  zutat:row.querySelector('.item').value.trim()
+ })).filter(x=>x.zutat);
+}
+async function load(){
+ const {data,error}=await db.from('rezepte').select('id,name,zutaten').order('name');
+ if(error)throw error;
+ recipes=data||[];
+ render();
+}
+function render(){
+ const q=$('search').value.toLowerCase();
+ $('recipeList').replaceChildren();
+ for(const r of recipes.filter(x=>x.name.toLowerCase().includes(q))){
+  const div=document.createElement('div');
+  div.className='recipe';div.textContent=r.name;
+  div.onclick=()=>detail(r.id);
+  $('recipeList').append(div);
+ }
+}
+function detail(id){
+ selected=id;
+ const r=recipes.find(x=>x.id===id);
+ if(!r)return;
+ $('detailTitle').textContent=r.name;
+ $('detailIngredients').replaceChildren();
+ for(const z of r.zutaten||[]){
+  const li=document.createElement('li');
+  li.textContent=(z.menge||'')+' – '+(z.zutat||'');
+  $('detailIngredients').append(li);
+ }
+ panel('detailPanel');message('');
+}
+function editor(id=null){
+ editing=id;
+ const r=recipes.find(x=>x.id===id);
+ $('editorTitle').textContent=r?'Rezept bearbeiten':'Neues Rezept';
+ $('recipeName').value=r?.name||'';
+ $('ingredientRows').replaceChildren();
+ if(r?.zutaten?.length)r.zutaten.forEach(z=>addRow(z.menge,z.zutat));
+ else addRow();
+ panel('editorPanel');message('');
+}
+$('addIngredient').onclick=()=>addRow();
+$('newRecipe').onclick=()=>editor();
+$('editRecipe').onclick=()=>editor(selected);
+$('backDetail').onclick=()=>panel('listPanel');
+$('cancelEdit').onclick=()=>panel('listPanel');
+$('search').oninput=render;
+
+$('recipeForm').onsubmit=async e=>{
+ e.preventDefault();
+ const name=$('recipeName').value.trim();
+ const zutaten=ingredients();
+ if(!name||!zutaten.length){message('Bitte Name und Zutaten eingeben.');return}
+ try{
+  const payload={name,zutaten};
+  const result=editing
+   ?await db.from('rezepte').update(payload).eq('id',editing).eq('benutzer_id',user.id)
+   :await db.from('rezepte').insert({...payload,benutzer_id:user.id});
+  if(result.error)throw result.error;
+  await load();panel('listPanel');message('Rezept gespeichert.');
+ }catch(err){message('Fehler: '+err.message)}
+};
+$('deleteRecipe').onclick=async()=>{
+ const r=recipes.find(x=>x.id===selected);
+ if(!r||!confirm('Rezept wirklich löschen?'))return;
+ const {error}=await db.from('rezepte').delete().eq('id',selected).eq('benutzer_id',user.id);
+ if(error){message(error.message);return}
+ await load();panel('listPanel');message('Rezept gelöscht.');
+};
+$('loginForm').onsubmit=async e=>{
+ e.preventDefault();
+ const {error}=await db.auth.signInWithPassword({
+  email:$('email').value.trim(),
+  password:$('password').value
+ });
+ if(error){message('Anmeldung fehlgeschlagen: '+error.message);return}
+ $('password').value='';
+ await initialize();
+};
+$('logout').onclick=async()=>{
+ await db.auth.signOut();
+ user=null;recipes=[];
+ $('app').classList.add('hidden');
+ $('login').classList.remove('hidden');
+ message('Abgemeldet.');
+};
+async function initialize(){
+ const {data:{user:current}}=await db.auth.getUser();
+ if(!current)return;
+ user=current;
+ $('login').classList.add('hidden');
+ $('app').classList.remove('hidden');
+ try{await load();message('')}
+ catch(err){message('Fehler beim Laden: '+err.message)}
+}
+initialize();
+</script>
+</body>
+</html>
